@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
@@ -46,12 +47,12 @@ async def make_payment(key: str, webhook_url: str = UNREACHABLE_URL) -> Payment:
         return await create_payment(session, data, key)
 
 
-async def record_payment_result(payment_id, status: PaymentStatus) -> Payment:
+async def record_payment_result(payment_id: uuid.UUID, status: PaymentStatus) -> Payment:
     async with session_factory() as session:
         return await record_result(session, payment_id, status)
 
 
-async def stored_payment(payment_id) -> Payment | None:
+async def stored_payment(payment_id: uuid.UUID) -> Payment | None:
     async with session_factory() as session:
         return await get_payment(session, payment_id)
 

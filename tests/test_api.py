@@ -90,6 +90,22 @@ async def test_empty_or_too_long_idempotency_key_is_422(client, key):
     assert await count_rows(Payment) == 0
 
 
+async def test_largest_amount_is_accepted(client):
+    response = await post_payment(client, body={**PAYMENT_BODY, "amount": "9" * 16 + ".99"})
+
+    assert response.status_code == 202
+
+
+@pytest.mark.parametrize("field", ["amount", "currency", "description", "metadata", "webhook_url"])
+async def test_body_without_required_field_is_422(client, field):
+    body = {key: value for key, value in PAYMENT_BODY.items() if key != field}
+
+    response = await post_payment(client, body=body)
+
+    assert response.status_code == 422
+    assert await count_rows(Payment) == 0
+
+
 @pytest.mark.parametrize(
     "change",
     [

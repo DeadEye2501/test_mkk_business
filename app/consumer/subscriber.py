@@ -1,6 +1,6 @@
 """Подписчик на payments.new: исход обработки → ack / reject."""
 
-from faststream.middlewares import AckPolicy
+from faststream import AckPolicy
 
 from app.broker import broker, new_payments_queue, payments_exchange
 from app.consumer import processing

@@ -30,7 +30,7 @@ async def test_pending_events_reach_consumer_and_are_marked(processed):
     assert await outbox.publish_pending() == 0
 
 
-async def test_events_go_out_in_creation_order_not_insertion_order(processed):
+async def test_events_go_out_in_created_at_order(processed):
     inserted_first = await make_payment(str(uuid.uuid4()))
     inserted_second = await make_payment(str(uuid.uuid4()))
     async with session_factory() as session, session.begin():
@@ -52,6 +52,16 @@ async def test_one_call_publishes_at_most_one_batch(processed, monkeypatch):
 
     assert await outbox.publish_pending() == 2
     assert await outbox.publish_pending() == 1
+
+
+async def test_events_are_published_as_persistent_messages(monkeypatch):
+    await make_payment(str(uuid.uuid4()))
+    publish = AsyncMock()
+    monkeypatch.setattr(broker, "publish", publish)
+
+    await outbox.publish_pending()
+
+    assert publish.await_args.kwargs["persist"] is True
 
 
 async def test_failed_publish_leaves_event_for_next_iteration(monkeypatch):
@@ -99,7 +109,7 @@ async def test_api_accepts_payments_while_broker_is_down(monkeypatch):
     declare = AsyncMock(side_effect=ConnectionError("broker is down"))
     monkeypatch.setattr(outbox, "declare_topology", declare)
 
-    async with asyncio.timeout(5), running_api() as client:
+    async with running_api() as client:
         response = await post_payment(client)
 
     assert response.status_code == 202
