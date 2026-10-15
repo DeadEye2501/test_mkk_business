@@ -5,13 +5,8 @@ from sqlalchemy import select
 
 from app.db import session_factory
 from app.models import OutboxEvent, Payment, PaymentStatus
-from app.payments import get_payment, record_result
-from tests.helpers import count_rows, make_payment
-
-
-async def _record(payment_id, status: PaymentStatus) -> Payment:
-    async with session_factory() as session:
-        return await record_result(session, payment_id, status)
+from app.payments import get_payment
+from tests.helpers import count_rows, make_payment, record_payment_result
 
 
 async def test_new_payment_is_pending_and_leaves_one_event_naming_it():
@@ -49,8 +44,8 @@ async def test_get_payment_returns_none_for_unknown_id():
 async def test_result_is_recorded_once_and_later_writes_get_it_back():
     payment = await make_payment("key-1")
 
-    first = await _record(payment.id, PaymentStatus.failed)
-    second = await _record(payment.id, PaymentStatus.succeeded)
+    first = await record_payment_result(payment.id, PaymentStatus.failed)
+    second = await record_payment_result(payment.id, PaymentStatus.succeeded)
 
     assert first.status is PaymentStatus.failed
     assert first.processed_at is not None

@@ -1,6 +1,9 @@
 """Общее окружение тестов: тестовая база, схема из миграций, чистые таблицы."""
 
+import json
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from alembic import command
@@ -32,3 +35,22 @@ async def clean_tables():
         await connection.execute(text(f"TRUNCATE {tables}"))
     yield
     await engine.dispose()
+
+
+@pytest.fixture
+def webhook_receiver():
+    from tests.helpers import WebhookReceiver
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers["Content-Length"])
+            receiver.received.append(json.loads(self.rfile.read(length)))
+            self.send_response(receiver.statuses.pop(0) if receiver.statuses else 200)
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    receiver = WebhookReceiver(url=f"http://127.0.0.1:{server.server_port}/hook")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield receiver
+    server.shutdown()
+    server.server_close()

@@ -41,3 +41,13 @@ class PaymentRead(BaseModel):
     webhook_url: str
     created_at: datetime
     processed_at: datetime | None
+
+
+class WebhookPayload(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    payment_id: uuid.UUID = Field(validation_alias="id")
+    status: PaymentStatus
+    amount: Decimal
+    currency: Currency
+    processed_at: datetime
