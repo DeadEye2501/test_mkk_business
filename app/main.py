@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -17,8 +17,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         relay.cancel()
-        with suppress(asyncio.CancelledError):
-            await relay
+        await asyncio.wait([relay])
 
 
 app = FastAPI(title="Payments", lifespan=lifespan)

@@ -5,8 +5,7 @@ from sqlalchemy import select
 
 from app.db import session_factory
 from app.models import OutboxEvent, Payment, PaymentStatus
-from app.payments import get_payment
-from tests.helpers import count_rows, make_payment, record_payment_result
+from tests.helpers import count_rows, make_payment, record_payment_result, stored_payment
 
 
 async def test_new_payment_is_pending_and_leaves_one_event_naming_it():
@@ -37,8 +36,7 @@ async def test_concurrent_requests_with_same_key_create_one_payment():
 
 
 async def test_get_payment_returns_none_for_unknown_id():
-    async with session_factory() as session:
-        assert await get_payment(session, uuid.uuid4()) is None
+    assert await stored_payment(uuid.uuid4()) is None
 
 
 async def test_result_is_recorded_once_and_later_writes_get_it_back():

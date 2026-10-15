@@ -48,8 +48,12 @@ async def test_get_returns_full_payment(client):
     assert body["id"] == payment_id
     assert body["amount"] == PAYMENT_BODY["amount"]
     assert body["currency"] == PAYMENT_BODY["currency"]
+    assert body["description"] == PAYMENT_BODY["description"]
     assert body["metadata"] == PAYMENT_BODY["metadata"]
+    assert body["status"] == "pending"
     assert body["idempotency_key"] == "key-1"
+    assert body["webhook_url"] == PAYMENT_BODY["webhook_url"]
+    assert body["created_at"]
     assert body["processed_at"] is None
 
 

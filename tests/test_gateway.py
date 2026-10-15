@@ -1,5 +1,6 @@
 from collections import Counter
 
+from app.config import settings
 from app.consumer import gateway
 from app.models import PaymentStatus
 from tests.helpers import record_sleeps
@@ -14,8 +15,8 @@ async def test_charge_succeeds_about_nine_times_in_ten():
 
 async def test_charge_pauses_anywhere_between_configured_bounds(monkeypatch):
     pauses = record_sleeps(monkeypatch, gateway)
-    monkeypatch.setattr(gateway.settings, "gateway_delay_min", 2.0)
-    monkeypatch.setattr(gateway.settings, "gateway_delay_max", 5.0)
+    monkeypatch.setattr(settings, "gateway_delay_min", 2.0)
+    monkeypatch.setattr(settings, "gateway_delay_max", 5.0)
 
     for _ in range(500):
         await gateway.charge()

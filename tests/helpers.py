@@ -1,10 +1,13 @@
 """Общие помощники тестов."""
 
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import json
+import threading
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import httpx
@@ -12,9 +15,9 @@ from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import session_factory
-from app.main import app
+from app.main import app, lifespan
 from app.models import Currency, Payment, PaymentStatus
-from app.payments import create_payment, record_result
+from app.payments import create_payment, get_payment, record_result
 from app.schemas import PaymentCreate
 
 UNREACHABLE_URL = "http://127.0.0.1:9/hook"
@@ -48,6 +51,11 @@ async def record_payment_result(payment_id, status: PaymentStatus) -> Payment:
         return await record_result(session, payment_id, status)
 
 
+async def stored_payment(payment_id) -> Payment | None:
+    async with session_factory() as session:
+        return await get_payment(session, payment_id)
+
+
 async def poll(check):
     loop = asyncio.get_running_loop()
     deadline = loop.time() + POLL_TIMEOUT
@@ -63,11 +71,33 @@ class WebhookReceiver:
     received: list[dict] = field(default_factory=list)
     statuses: list[int] = field(default_factory=list)
 
+    def answer(self, body: bytes) -> int:
+        self.received.append(json.loads(body))
+        return self.statuses.pop(0) if self.statuses else 200
+
     async def wait(self) -> list[dict]:
         return await poll(self._received)
 
     async def _received(self) -> list[dict]:
         return self.received
+
+
+@contextmanager
+def serving_webhooks() -> Iterator[WebhookReceiver]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(receiver.answer(body))
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    receiver = WebhookReceiver(url=f"http://127.0.0.1:{server.server_port}/hook")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield receiver
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def record_sleeps(monkeypatch, module) -> list[float]:
@@ -84,6 +114,12 @@ def record_sleeps(monkeypatch, module) -> list[float]:
 async def api_client() -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+@asynccontextmanager
+async def running_api() -> AsyncIterator[httpx.AsyncClient]:
+    async with lifespan(app), api_client() as client:
         yield client
 
 

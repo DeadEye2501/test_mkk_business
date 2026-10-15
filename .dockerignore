@@ -1,10 +1,6 @@
-.env
-.venv
-.git
-.claude
-.superpowers
-docs
-tests
-__pycache__
-.pytest_cache
-*.pdf
+*
+!app
+!migrations
+!alembic.ini
+!Pipfile
+!Pipfile.lock

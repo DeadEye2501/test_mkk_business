@@ -1,16 +1,17 @@
 import asyncio
 import uuid
 from contextlib import suppress
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from app import outbox
 from app.broker import broker
 from app.db import session_factory
 from app.models import OutboxEvent
-from tests.helpers import api_client, count_rows, make_payment, post_payment, record_sleeps
+from tests.helpers import count_rows, make_payment, post_payment, record_sleeps, running_api
 
 
 async def _unpublished() -> list[OutboxEvent]:
@@ -18,7 +19,7 @@ async def _unpublished() -> list[OutboxEvent]:
         return (await session.scalars(select(OutboxEvent).where(OutboxEvent.published_at.is_(None)))).all()
 
 
-async def test_pending_events_reach_consumer_in_order_and_are_marked(processed):
+async def test_pending_events_reach_consumer_and_are_marked(processed):
     first = await make_payment(str(uuid.uuid4()))
     second = await make_payment(str(uuid.uuid4()))
 
@@ -27,6 +28,30 @@ async def test_pending_events_reach_consumer_in_order_and_are_marked(processed):
     assert processed == [first.id, second.id]
     assert await _unpublished() == []
     assert await outbox.publish_pending() == 0
+
+
+async def test_events_go_out_in_creation_order_not_insertion_order(processed):
+    inserted_first = await make_payment(str(uuid.uuid4()))
+    inserted_second = await make_payment(str(uuid.uuid4()))
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            update(OutboxEvent)
+            .where(OutboxEvent.payload == {"payment_id": str(inserted_second.id)})
+            .values(created_at=func.now() - timedelta(minutes=1))
+        )
+
+    await outbox.publish_pending()
+
+    assert processed == [inserted_second.id, inserted_first.id]
+
+
+async def test_one_call_publishes_at_most_one_batch(processed, monkeypatch):
+    monkeypatch.setattr(outbox, "BATCH_SIZE", 2)
+    for _ in range(3):
+        await make_payment(str(uuid.uuid4()))
+
+    assert await outbox.publish_pending() == 2
+    assert await outbox.publish_pending() == 1
 
 
 async def test_failed_publish_leaves_event_for_next_iteration(monkeypatch):
@@ -71,12 +96,10 @@ async def test_stopped_relay_closes_broker_connection(monkeypatch):
 
 
 async def test_api_accepts_payments_while_broker_is_down(monkeypatch):
-    from app.main import app, lifespan
-
     declare = AsyncMock(side_effect=ConnectionError("broker is down"))
     monkeypatch.setattr(outbox, "declare_topology", declare)
 
-    async with lifespan(app), api_client() as client:
+    async with asyncio.timeout(5), running_api() as client:
         response = await post_payment(client)
 
     assert response.status_code == 202
