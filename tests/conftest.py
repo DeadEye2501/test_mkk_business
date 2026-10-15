@@ -54,3 +54,20 @@ def webhook_receiver():
     yield receiver
     server.shutdown()
     server.server_close()
+
+
+@pytest.fixture
+async def processed(monkeypatch):
+    from faststream.rabbit import TestRabbitBroker
+
+    from app.consumer import processing
+    from app.consumer.subscriber import broker
+
+    payment_ids = []
+
+    async def process(payment_id) -> None:
+        payment_ids.append(payment_id)
+
+    monkeypatch.setattr(processing, "process_payment", process)
+    async with TestRabbitBroker(broker):
+        yield payment_ids

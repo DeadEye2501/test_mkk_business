@@ -1,5 +1,6 @@
 """Общие помощники тестов."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from app.payments import create_payment, record_result
 from app.schemas import PaymentCreate
 
 UNREACHABLE_URL = "http://127.0.0.1:9/hook"
+POLL_TIMEOUT = 20.0
 
 PAYMENT_DATA = PaymentCreate(
     amount=Decimal("99.90"),
@@ -46,11 +48,26 @@ async def record_payment_result(payment_id, status: PaymentStatus) -> Payment:
         return await record_result(session, payment_id, status)
 
 
+async def poll(check):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + POLL_TIMEOUT
+    while not (result := await check()):
+        assert loop.time() < deadline, "timed out waiting"
+        await asyncio.sleep(0.2)
+    return result
+
+
 @dataclass
 class WebhookReceiver:
     url: str
     received: list[dict] = field(default_factory=list)
     statuses: list[int] = field(default_factory=list)
+
+    async def wait(self) -> list[dict]:
+        return await poll(self._received)
+
+    async def _received(self) -> list[dict]:
+        return self.received
 
 
 def record_sleeps(monkeypatch, module) -> list[float]:
