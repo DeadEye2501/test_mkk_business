@@ -25,7 +25,6 @@ def _gateway_returning(monkeypatch, *statuses: PaymentStatus) -> list[PaymentSta
     queue = list(statuses)
 
     async def charge() -> PaymentStatus:
-        await asyncio.sleep(0.05)
         calls.append(queue.pop(0))
         return calls[-1]
 
@@ -94,7 +93,14 @@ async def test_attempts_are_spaced_exponentially(webhook_receiver, monkeypatch):
 
 
 async def test_parallel_copies_send_one_and_the_same_result(webhook_receiver, monkeypatch):
-    calls = _gateway_returning(monkeypatch, PaymentStatus.succeeded, PaymentStatus.failed)
+    both_charging = asyncio.Barrier(2)
+    results = iter([PaymentStatus.succeeded, PaymentStatus.failed])
+
+    async def charge() -> PaymentStatus:
+        await asyncio.wait_for(both_charging.wait(), timeout=2)
+        return next(results)
+
+    monkeypatch.setattr(gateway, "charge", charge)
     payment = await _payment_for(webhook_receiver)
 
     await asyncio.gather(
@@ -102,5 +108,4 @@ async def test_parallel_copies_send_one_and_the_same_result(webhook_receiver, mo
     )
 
     recorded = (await _stored(payment.id)).status
-    assert len(calls) == 2
     assert [hook["status"] for hook in webhook_receiver.received] == [recorded, recorded]
