@@ -7,7 +7,14 @@ from app import outbox
 from app.broker import dead_letter_queue, declare_topology, new_payments_queue
 from app.consumer.subscriber import broker
 from app.models import PaymentStatus
-from tests.helpers import UNREACHABLE_URL, make_payment, poll
+from tests.helpers import (
+    PAYMENT_BODY,
+    UNREACHABLE_URL,
+    api_client,
+    make_payment,
+    poll,
+    post_payment,
+)
 
 pytestmark = pytest.mark.rabbit
 
@@ -41,3 +48,15 @@ async def test_undeliverable_webhook_lands_in_dlq(running_consumer):
     message = await poll(lambda: dlq.get(fail=False))
     await message.ack()
     assert json.loads(message.body) == {"payment_id": str(payment.id)}
+
+
+async def test_payment_goes_from_api_through_outbox_to_webhook(running_consumer, webhook_receiver):
+    from app.main import app, lifespan
+
+    body = {**PAYMENT_BODY, "webhook_url": webhook_receiver.url}
+    async with lifespan(app), api_client() as client:
+        created = await post_payment(client, body=body, key=str(uuid.uuid4()))
+        hooks = await webhook_receiver.wait()
+
+    assert created.status_code == 202
+    assert hooks[0]["payment_id"] == created.json()["payment_id"]
