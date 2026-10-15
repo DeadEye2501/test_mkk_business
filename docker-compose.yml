@@ -1,0 +1,51 @@
+x-service-env: &service-env
+  DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+  AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+  API_KEY: ${API_KEY:-change-me}
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments
+      POSTGRES_DB: payments
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U payments -d payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  api:
+    build: .
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    restart: on-failure
+    environment: *service-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer:
+    build: .
+    command: faststream run app.consumer.main:app
+    restart: on-failure
+    environment: *service-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
