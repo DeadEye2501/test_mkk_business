@@ -1,5 +1,6 @@
 .claude/
 docs/
+*.pdf
 
 .env
 .env.*
