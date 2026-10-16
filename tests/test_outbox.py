@@ -45,6 +45,16 @@ async def test_events_go_out_in_created_at_order(processed):
     assert processed == [inserted_second.id, inserted_first.id]
 
 
+async def test_events_locked_by_another_relay_are_skipped(processed):
+    await make_payment(str(uuid.uuid4()))
+
+    async with session_factory() as session, session.begin():
+        await session.execute(select(OutboxEvent).with_for_update())
+        assert await asyncio.wait_for(outbox.publish_pending(), timeout=5) == 0
+
+    assert processed == []
+
+
 async def test_one_call_publishes_at_most_one_batch(processed, monkeypatch):
     monkeypatch.setattr(outbox, "BATCH_SIZE", 2)
     for _ in range(3):
@@ -80,7 +90,6 @@ async def test_failed_publish_leaves_event_for_next_iteration(monkeypatch):
 async def test_relay_iteration_pauses_unless_batch_was_full(monkeypatch):
     pauses = record_sleeps(monkeypatch, outbox)
     outcomes = [outbox.BATCH_SIZE, 1, ConnectionError("broker is down")]
-    monkeypatch.setattr(outbox, "declare_topology", AsyncMock())
     monkeypatch.setattr(outbox, "publish_pending", AsyncMock(side_effect=outcomes))
 
     await outbox._relay_iteration()
@@ -88,6 +97,23 @@ async def test_relay_iteration_pauses_unless_batch_was_full(monkeypatch):
     await outbox._relay_iteration()
     await outbox._relay_iteration()
     assert pauses == [outbox.POLL_INTERVAL, outbox.POLL_INTERVAL]
+
+
+async def test_relay_declares_topology_once_retrying_until_broker_is_up(monkeypatch):
+    record_sleeps(monkeypatch, outbox)
+    monkeypatch.setattr(broker, "stop", AsyncMock())
+    declare = AsyncMock(
+        side_effect=[ConnectionError("broker is down"), None, asyncio.CancelledError()]
+    )
+    publish = AsyncMock(side_effect=[0, 0, asyncio.CancelledError()])
+    monkeypatch.setattr(outbox, "declare_topology", declare)
+    monkeypatch.setattr(outbox, "publish_pending", publish)
+
+    with pytest.raises(asyncio.CancelledError):
+        await outbox.run_relay()
+
+    assert declare.await_count == 2
+    assert publish.await_count == 3
 
 
 async def test_stopped_relay_closes_broker_connection(monkeypatch):
