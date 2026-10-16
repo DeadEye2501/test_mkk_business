@@ -29,6 +29,15 @@ async def test_repeat_with_same_key_returns_same_payment(client):
     assert second.json()["payment_id"] == first.json()["payment_id"]
 
 
+async def test_same_key_with_different_body_is_409(client):
+    await post_payment(client)
+
+    response = await post_payment(client, body={**PAYMENT_BODY, "amount": "1.00"})
+
+    assert response.status_code == 409
+    assert await count_rows(Payment) == 1
+
+
 async def test_different_keys_create_different_payments(client):
     first = await post_payment(client, key="key-1")
     second = await post_payment(client, key="k" * 255)

@@ -1,10 +1,12 @@
 import asyncio
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from app.db import session_factory
 from app.models import OutboxEvent, Payment, PaymentStatus
+from app.payments import IdempotencyKeyReused
 from tests.helpers import count_rows, make_payment, record_payment_result, stored_payment
 
 
@@ -23,6 +25,16 @@ async def test_repeat_with_same_key_returns_same_payment_without_new_event():
     second = await make_payment("key-1")
 
     assert second.id == first.id
+    assert await count_rows(Payment) == 1
+    assert await count_rows(OutboxEvent) == 1
+
+
+async def test_same_key_with_different_data_is_rejected():
+    await make_payment("key-1")
+
+    with pytest.raises(IdempotencyKeyReused):
+        await make_payment("key-1", webhook_url="http://127.0.0.1:9/other")
+
     assert await count_rows(Payment) == 1
     assert await count_rows(OutboxEvent) == 1
 

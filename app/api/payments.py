@@ -22,7 +22,12 @@ IdempotencyKey = Annotated[str, Header(min_length=1, max_length=IDEMPOTENCY_KEY_
 async def create_payment(
     data: PaymentCreate, idempotency_key: IdempotencyKey, session: DbSession
 ) -> Payment:
-    return await payments.create_payment(session, data, idempotency_key)
+    try:
+        return await payments.create_payment(session, data, idempotency_key)
+    except payments.IdempotencyKeyReused:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Idempotency-Key was used with a different request"
+        ) from None
 
 
 @router.get("/{payment_id}", response_model=PaymentRead)
